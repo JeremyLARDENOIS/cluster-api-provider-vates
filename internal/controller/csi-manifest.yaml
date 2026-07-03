@@ -1,0 +1,462 @@
+---
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: csi.xenorchestra.vates.tech
+  annotations:
+    csiDriver: latest
+  labels:
+    app.kubernetes.io/instance: csi.xenorchestra.vates.tech
+    app.kubernetes.io/part-of: xenorchestra-csi-driver
+    app.kubernetes.io/name: csi-xenorchestra
+    app.kubernetes.io/component: serviceaccount
+spec:
+  attachRequired: true
+  podInfoOnMount: true
+  fsGroupPolicy: File
+  volumeLifecycleModes:
+    - Persistent
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-xenorchestra-node-sa
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/instance: csi.xenorchestra.vates.tech
+    app.kubernetes.io/part-of: xenorchestra-csi-driver
+    app.kubernetes.io/name: csi-xenorchestra
+    app.kubernetes.io/component: serviceaccount
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-xenorchestra-node-role
+  labels:
+    app.kubernetes.io/instance: csi.xenorchestra.vates.tech
+    app.kubernetes.io/part-of: xenorchestra-csi-driver
+    app.kubernetes.io/name: csi-xenorchestra-node-role
+    app.kubernetes.io/component: clusterrole
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-xenorchestra-node-binding
+  labels:
+    app.kubernetes.io/instance: csi.xenorchestra.vates.tech
+    app.kubernetes.io/part-of: xenorchestra-csi-driver
+    app.kubernetes.io/name: csi-xenorchestra-node-binding
+    app.kubernetes.io/component: clusterrolebinding
+subjects:
+  - kind: ServiceAccount
+    name: csi-xenorchestra-node-sa
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: csi-xenorchestra-node-role
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: csi-xenorchestra-node
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/instance: csi.xenorchestra.vates.tech
+    app.kubernetes.io/part-of: xenorchestra-csi-driver
+    app.kubernetes.io/name: csi-xenorchestra-node
+    app.kubernetes.io/component: plugin
+spec:
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: csi-xenorchestra-node
+  template:
+    metadata:
+      labels:
+        app: csi-xenorchestra-node
+    spec:
+      hostNetwork: true
+      dnsPolicy: Default
+      serviceAccountName: csi-xenorchestra-node-sa
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: "Exists"
+      containers:
+        - name: liveness-probe
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.18.0
+          args:
+            - --csi-address=/csi/csi.sock
+            - --http-endpoint=localhost:29603
+            - --v=2
+          resources:
+            limits:
+              memory: 100Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+        - name: node-driver-registrar
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.16.0
+          args:
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=/var/lib/kubelet/plugins/csi.xenorchestra.vates.tech/csi.sock
+            - --v=2
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+          resources:
+            limits:
+              memory: 100Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+        - name: xenorchestra-csi-driver
+          image: ghcr.io/vatesfr/xenorchestra-csi-driver:edge
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--v=5"
+            - "--endpoint=unix:///csi/csi.sock"
+            - "--node-name=$(KUBE_NODE_NAME)"
+            - "--config-file=/etc/xenorchestra/config.yaml"
+            - "--cluster-tag=k8s-managed"
+          ports:
+            - containerPort: 29603
+              name: healthz
+              protocol: TCP
+            - containerPort: 29605
+              name: metrics
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 5
+            httpGet:
+              host: localhost
+              path: /healthz
+              port: 29603
+          env:
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: KUBERNETES_SERVICE_HOST
+              value: "{{.ApiServerHost}}"
+            - name: KUBERNETES_SERVICE_PORT
+              value: "{{.ApiServerPort}}"
+          securityContext:
+            privileged: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+            - mountPath: /var/lib/kubelet/
+              mountPropagation: Bidirectional
+              name: mountpoint-dir
+            - mountPath: /dev
+              name: device-dir
+            - mountPath: /etc/xenorchestra
+              name: xo-cloud-config
+              readOnly: true
+          resources:
+            limits:
+              memory: 1000Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+      volumes:
+        - hostPath:
+            path: /var/lib/kubelet/plugins/csi.xenorchestra.vates.tech
+            type: DirectoryOrCreate
+          name: socket-dir
+        - hostPath:
+            path: /var/lib/kubelet/
+            type: DirectoryOrCreate
+          name: mountpoint-dir
+        - hostPath:
+            path: /var/lib/kubelet/plugins_registry/
+            type: DirectoryOrCreate
+          name: registration-dir
+        - hostPath:
+            path: /dev
+            type: Directory
+          name: device-dir
+        - name: xo-cloud-config
+          secret:
+            secretName: xenorchestra-cloud-controller-manager
+            defaultMode: 416
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-xenorchestra-controller-sa
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/instance: csi.xenorchestra.vates.tech
+    app.kubernetes.io/part-of: xenorchestra-csi-driver
+    app.kubernetes.io/name: csi-xenorchestra-controller-sa
+    app.kubernetes.io/component: serviceaccount
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-xenorchestra-external-provisioner-role
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents"]
+    verbs: ["get", "list"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]
+    verbs: ["get", "list", "watch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-xenorchestra-provisioner-binding
+subjects:
+  - kind: ServiceAccount
+    name: csi-xenorchestra-controller-sa
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: csi-xenorchestra-external-provisioner-role
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-xenorchestra-external-attacher-role
+  labels:
+    app.kubernetes.io/instance: csi.xenorchestra.vates.tech
+    app.kubernetes.io/part-of: xenorchestra-csi-driver
+    app.kubernetes.io/name: csi-xenorchestra-external-attacher-role
+    app.kubernetes.io/component: clusterrole
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments/status"]
+    verbs: ["patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "watch", "list", "delete", "update", "create"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-xenorchestra-attacher-binding
+  labels:
+    app.kubernetes.io/instance: csi.xenorchestra.vates.tech
+    app.kubernetes.io/part-of: xenorchestra-csi-driver
+    app.kubernetes.io/name: csi-xenorchestra-attacher-binding
+    app.kubernetes.io/component: clusterrolebinding
+subjects:
+  - kind: ServiceAccount
+    name: csi-xenorchestra-controller-sa
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: csi-xenorchestra-external-attacher-role
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: csi-xenorchestra-controller
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/instance: csi.xenorchestra.vates.tech
+    app.kubernetes.io/part-of: xenorchestra-csi-driver
+    app.kubernetes.io/name: csi-xenorchestra-controller
+    app.kubernetes.io/component: plugin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: csi-xenorchestra-controller
+  template:
+    metadata:
+      labels:
+        app: csi-xenorchestra-controller
+    spec:
+      hostNetwork: true
+      serviceAccountName: csi-xenorchestra-controller-sa
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-cluster-critical
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      tolerations:
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/controlplane"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "CriticalAddonsOnly"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: liveness-probe
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.18.0
+          args:
+            - --csi-address=/csi/csi.sock
+            - --http-endpoint=localhost:29602
+            - --v=2
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          resources:
+            limits:
+              memory: 100Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+        - name: xenorchestra-csi-driver
+          image: ghcr.io/vatesfr/xenorchestra-csi-driver:edge
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--v=5"
+            - "--endpoint=unix:///csi/csi.sock"
+            - "--node-name=$(KUBE_NODE_NAME)"
+            - "--config-file=/etc/xenorchestra/config.yaml"
+            - "--cluster-tag=PFT-k8s-managed"
+          env:
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          ports:
+            - containerPort: 29604
+              name: metrics
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              host: localhost
+              path: /healthz
+              port: 29602
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+            - mountPath: /etc/xenorchestra
+              name: xo-cloud-config
+              readOnly: true
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+        - name: csi-attacher
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.11.0
+          args:
+            - "--v=5"
+            - "--csi-address=/csi/csi.sock"
+            - "--http-endpoint=:29605"
+          env:
+            - name: MY_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          livenessProbe:
+            failureThreshold: 1
+            httpGet:
+              path: /metrics
+              port: 29605
+            initialDelaySeconds: 10
+            timeoutSeconds: 10
+            periodSeconds: 20
+        - name: csi-provisioner
+          image: registry.k8s.io/sig-storage/csi-provisioner:v6.2.0
+          args:
+            - "--v=5"
+            - "--csi-address=/csi/csi.sock"
+            - "--http-endpoint=:29606"
+          imagePullPolicy: "IfNotPresent"
+          livenessProbe:
+            failureThreshold: 1
+            httpGet:
+              path: /metrics
+              port: 29606
+            initialDelaySeconds: 10
+            timeoutSeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+      volumes:
+        - name: socket-dir
+          emptyDir: {}
+        - name: xo-cloud-config
+          secret:
+            secretName: xenorchestra-cloud-controller-manager

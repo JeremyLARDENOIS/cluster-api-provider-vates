@@ -1,0 +1,29 @@
+CONTAINER_TOOL ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+IMG ?= ghcr.io/vatesfr/cluster-api-provider-vates:latest
+
+build:
+	$(MAKE) docker-build IMG=$(IMG)
+
+push:
+	rm -f /tmp/vates-capi-dev.tar && \
+	$(CONTAINER_TOOL) save $(IMG) -o /tmp/vates-capi-dev.tar && \
+	kind load image-archive /tmp/vates-capi-dev.tar --name kind
+
+ensure-image:
+	@current=$$(kubectl get deployment/vates-capi-controller-manager -n capi-system -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo ""); \
+	if [ -z "$$current" ]; then \
+		echo "Deployment not found, skipping image check"; \
+	elif [ "$$current" != "$(IMG)" ]; then \
+		echo "Image mismatch: current=$$current, expected=$(IMG)"; \
+		kubectl set image deployment/vates-capi-controller-manager -n capi-system manager=$(IMG); \
+		kubectl rollout restart deployment/vates-capi-controller-manager -n capi-system; \
+		kubectl rollout status deployment/vates-capi-controller-manager -n capi-system --timeout=5m; \
+	else \
+		echo "Image OK: $(IMG)"; \
+	fi
+
+restart:
+	kubectl rollout restart deployment/vates-capi-controller-manager -n capi-system
+	kubectl rollout status deployment/vates-capi-controller-manager -n capi-system --timeout=5m
+
+dev: build push ensure-image

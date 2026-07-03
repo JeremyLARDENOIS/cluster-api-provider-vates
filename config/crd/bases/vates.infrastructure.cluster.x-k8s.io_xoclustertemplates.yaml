@@ -1,0 +1,117 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: xoclustertemplates.vates.infrastructure.cluster.x-k8s.io
+spec:
+  group: vates.infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: XOClusterTemplate
+    listKind: XOClusterTemplateList
+    plural: xoclustertemplates
+    singular: xoclustertemplate
+  scope: Namespaced
+  versions:
+  - name: v1beta2
+    schema:
+      openAPIV3Schema:
+        description: XOClusterTemplate is the Schema for the xoclustertemplates API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: XOClusterTemplateSpec defines the desired state of XOClusterTemplate.
+            properties:
+              template:
+                description: XOClusterTemplateResource describes the data needed to
+                  create a XOCluster from a template.
+                properties:
+                  spec:
+                    description: Spec is the specification of the desired behavior
+                      of the cluster.
+                    properties:
+                      controlPlaneEndpoint:
+                        description: ControlPlaneEndpoint is the endpoint for the
+                          control plane.
+                        properties:
+                          host:
+                            description: Host is the DNS name or IP of the API server.
+                            type: string
+                          port:
+                            description: Port is the port of the API server.
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                          subnet:
+                            description: |-
+                              Subnet is the CIDR subnet mask used by the control plane load balancer.
+                              If not set, the load balancer implementation will auto-detect.
+                            format: int32
+                            maximum: 32
+                            minimum: 1
+                            type: integer
+                        required:
+                        - host
+                        - port
+                        type: object
+                      controlPlaneLB:
+                        description: |-
+                          ControlPlaneLB selects the control plane load balancer implementation.
+                          Supported values: "kube-vip". When set, the controller injects setup
+                          scripts into the cloud-init data of control plane machines.
+                        enum:
+                        - kube-vip
+                        type: string
+                      identityRef:
+                        description: |-
+                          IdentityRef is a reference to a Secret containing XO credentials.
+                          The Secret must contain 'url' and 'token' data keys, and optionally
+                          'insecure'. The Secret must be in the same namespace as the XOCluster.
+                          If not set, falls back to the controller's global credentials.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
+            type: object
+          status:
+            description: XOClusterTemplateStatus defines the observed state of XOClusterTemplate.
+            type: object
+        required:
+        - metadata
+        type: object
+    served: true
+    storage: true
