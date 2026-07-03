@@ -41,7 +41,9 @@ jobs:
         run: |
           go mod tidy
           make docker-build
-          kind load docker-image $IMG
+          CT=$(command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+          $CT save $IMG -o /tmp/vates-capi.tar
+          kind load image-archive /tmp/vates-capi.tar
 
       - name: Install Helm
         run: make install-helm
