@@ -40,9 +40,8 @@ jobs:
       - name: Prepare vates-capi
         run: |
           go mod tidy
-          make docker-build
-          CT=$(command -v podman 2>/dev/null || command -v docker 2>/dev/null)
-          $CT save $IMG -o /tmp/vates-capi.tar
+          make docker-build CONTAINER_TOOL=docker
+          docker save $IMG -o /tmp/vates-capi.tar
           kind load image-archive /tmp/vates-capi.tar
 
       - name: Install Helm
