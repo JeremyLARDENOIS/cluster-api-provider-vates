@@ -21,6 +21,9 @@ resources:
 # Bind the manager-role to the KCP controller's service account
 # (capi-kubeadm-control-plane-system namespace, not transformed by kustomize)
 - kcp-binding.yaml
+# Aggregate role: allows the CAPI manager (capi-system) to watch our types
+# via the cluster.x-k8s.io/aggregate-to-manager label
+- capi_aggregate_role.yaml
 # For each CRD, "Admin", "Editor" and "Viewer" roles are scaffolded by
 # default, aiding admins in cluster management. Those roles are
 # not used by the vates-capi itself. You can comment the following lines
