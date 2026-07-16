@@ -19,10 +19,18 @@ import (
 	"github.com/vatesfr/cluster-api-provider-vates/internal/kubevip"
 )
 
-// BuildCloudConfig retrieves SSH keys from the XO user profile and merges
-// them into the bootstrap data. If no bootstrap data is provided, a minimal
-// cloud-config with only SSH authorized keys is generated.
-func BuildCloudConfig(ctx context.Context, xoClient *xok8scommon.XoClient, bootstrapData []byte) (string, error) {
+// BuildCloudConfig optionally injects SSH keys from the XO user profile
+// into the bootstrap data. If injectSSHKeys is false, the bootstrap data
+// is returned as-is. If no bootstrap data is provided and injection is
+// enabled, a minimal cloud-config with only SSH authorized keys is generated.
+func BuildCloudConfig(ctx context.Context, xoClient *xok8scommon.XoClient, bootstrapData []byte, injectSSHKeys bool) (string, error) {
+	if !injectSSHKeys {
+		if len(bootstrapData) > 0 {
+			return string(bootstrapData), nil
+		}
+		return "", nil
+	}
+
 	v1Client := xoClient.Client.V1Client()
 	if v1Client == nil {
 		return "", fmt.Errorf("v1 client not available")

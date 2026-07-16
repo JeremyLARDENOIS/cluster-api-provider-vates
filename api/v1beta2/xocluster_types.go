@@ -18,6 +18,16 @@ type XOClusterSpec struct {
 	// +kubebuilder:validation:Enum=kube-vip
 	ControlPlaneLB *string `json:"controlPlaneLB,omitempty"`
 
+	// InjectSSHKeys enables injection of the XO user's SSH public keys into
+	// the cloud-init userdata of all VMs in this cluster. When enabled, the
+	// controller fetches the SSH keys from the authenticated XO user profile
+	// and merges them into the ssh_authorized_keys section of each VM's
+	// cloud-config. Disabled by default to avoid modifying user-provided
+	// bootstrap data without explicit opt-in.
+	// +optional
+	// +kubebuilder:default=false
+	InjectSSHKeys bool `json:"injectSSHKeys,omitempty"`
+
 	// IdentityRef is a reference to a Secret containing XO credentials.
 	// The Secret must contain 'url' and 'token' data keys, and optionally
 	// 'insecure'. The Secret must be in the same namespace as the XOCluster.

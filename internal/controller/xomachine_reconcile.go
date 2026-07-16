@@ -62,7 +62,7 @@ func (r *XOMachineReconciler) reconcileNormal(ctx context.Context, vatesMachine 
 		return ctrl.Result{}, nil
 	}
 
-	cloudConfig, err := xomachine.BuildCloudConfig(ctx, xoClient, bsResult.Data)
+	cloudConfig, err := xomachine.BuildCloudConfig(ctx, xoClient, bsResult.Data, r.resolveInjectSSHKeys(ctx, vatesMachine, bsResult.Machine))
 	if err != nil {
 		logger.Error(err, "Failed to build cloud config")
 		if updateErr := xomachine.UpdateCondition(ctx, r.Client, vatesMachine, metav1.ConditionFalse, "CloudConfigBuildFailed", err.Error()); updateErr != nil {
@@ -190,6 +190,21 @@ func (r *XOMachineReconciler) injectKubeVIPIfNeeded(
 		}
 	}
 	return cloudConfig, nil
+}
+
+func (r *XOMachineReconciler) resolveInjectSSHKeys(ctx context.Context, vatesMachine *infrastructurev1beta2.XOMachine, machine *clusterv1.Machine) bool {
+	if machine == nil {
+		return false
+	}
+	clusterName := machine.Labels["cluster.x-k8s.io/cluster-name"]
+	if clusterName == "" {
+		return false
+	}
+	vatesCluster, err := xomachine.GetXOCluster(ctx, r.Client, vatesMachine.Namespace, clusterName)
+	if err != nil || vatesCluster == nil {
+		return false
+	}
+	return vatesCluster.Spec.InjectSSHKeys
 }
 
 func (r *XOMachineReconciler) buildVMName(vatesMachine *infrastructurev1beta2.XOMachine, bsResult xomachine.ResolveBootstrapDataResult) string {

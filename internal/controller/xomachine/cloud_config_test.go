@@ -84,6 +84,22 @@ var _ = Describe("BuildCloudConfig", func() {
 		ctrl.Finish()
 	})
 
+	It("returns bootstrap data as-is when injectSSHKeys is false", func() {
+		out, err := BuildCloudConfig(context.Background(),
+			&xok8scommon.XoClient{Client: mockLib},
+			[]byte("#cloud-config\noriginal-data\n"), false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(out).To(Equal("#cloud-config\noriginal-data\n"))
+	})
+
+	It("returns empty string when injectSSHKeys is false and no bootstrap data", func() {
+		out, err := BuildCloudConfig(context.Background(),
+			&xok8scommon.XoClient{Client: mockLib},
+			nil, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(out).To(Equal(""))
+	})
+
 	It("merges SSH keys into the cloud-config", func() {
 		mockV1.EXPECT().
 			GetCurrentUser().
@@ -95,7 +111,7 @@ var _ = Describe("BuildCloudConfig", func() {
 
 		out, err := BuildCloudConfig(context.Background(),
 			&xok8scommon.XoClient{Client: mockLib},
-			[]byte("#cloud-config\n"))
+			[]byte("#cloud-config\n"), true)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(out).To(ContainSubstring("ssh-rsa"))
 	})
@@ -111,7 +127,7 @@ var _ = Describe("BuildCloudConfig", func() {
 
 		out, err := BuildCloudConfig(context.Background(),
 			&xok8scommon.XoClient{Client: mockLib},
-			nil)
+			nil, true)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(out).To(ContainSubstring("#cloud-config"))
 		Expect(out).To(ContainSubstring("ssh-ed25519"))
@@ -123,7 +139,7 @@ var _ = Describe("BuildCloudConfig", func() {
 
 		_, err := BuildCloudConfig(context.Background(),
 			&xok8scommon.XoClient{Client: mockLib2},
-			nil)
+			nil, true)
 		Expect(err).To(HaveOccurred())
 	})
 })
