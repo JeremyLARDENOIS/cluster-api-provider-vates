@@ -113,6 +113,16 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              injectSSHKeys:
+                default: false
+                description: |-
+                  InjectSSHKeys enables injection of the XO user's SSH public keys into
+                  the cloud-init userdata of all VMs in this cluster. When enabled, the
+                  controller fetches the SSH keys from the authenticated XO user profile
+                  and merges them into the ssh_authorized_keys section of each VM's
+                  cloud-config. Disabled by default to avoid modifying user-provided
+                  bootstrap data without explicit opt-in.
+                type: boolean
             type: object
           status:
             description: XOClusterStatus defines the observed state of XOCluster.
@@ -337,6 +347,16 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
+                      injectSSHKeys:
+                        default: false
+                        description: |-
+                          InjectSSHKeys enables injection of the XO user's SSH public keys into
+                          the cloud-init userdata of all VMs in this cluster. When enabled, the
+                          controller fetches the SSH keys from the authenticated XO user profile
+                          and merges them into the ssh_authorized_keys section of each VM's
+                          cloud-config. Disabled by default to avoid modifying user-provided
+                          bootstrap data without explicit opt-in.
+                        type: boolean
                     type: object
                 required:
                 - spec
