@@ -138,42 +138,6 @@ func InjectKubeVIP(ctx context.Context, c client.Client, vatesMachine *infrastru
 	return result, nil
 }
 
-// InjectPoolID adds the Xen Orchestra pool ID as a file in the cloud-config.
-// The pool ID is used by the VM (in postKubeadmCommands) to construct the
-// providerID together with the local VM UUID.
-func InjectPoolID(cloudConfig string, poolID string) (string, error) {
-	if cloudConfig == "" || poolID == "" {
-		return cloudConfig, nil
-	}
-
-	var config map[string]any
-	if err := yaml.Unmarshal([]byte(cloudConfig), &config); err != nil {
-		return "", fmt.Errorf("failed to parse cloud-config: %w", err)
-	}
-	if config == nil {
-		config = make(map[string]any)
-	}
-
-	writeFiles, ok := config["write_files"].([]any)
-	if !ok {
-		writeFiles = nil
-	}
-
-	writeFiles = append(writeFiles, map[string]any{
-		"path":        "/etc/vates/pool-id",
-		"permissions": "0644",
-		"content":     poolID + "\n",
-	})
-	config["write_files"] = writeFiles
-
-	out, err := yaml.Marshal(config)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal cloud-config: %w", err)
-	}
-
-	return "#cloud-config\n" + string(out), nil
-}
-
 // GetXOCluster retrieves a XOCluster by namespace and cluster name.
 func GetXOCluster(ctx context.Context, c client.Client, namespace, clusterName string) (*infrastructurev1beta2.XOCluster, error) {
 	cluster := &clusterv1.Cluster{}

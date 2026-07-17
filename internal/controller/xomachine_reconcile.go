@@ -108,12 +108,6 @@ func (r *XOMachineReconciler) reconcileNormal(ctx context.Context, vatesMachine 
 		}
 		vm, err = xomachine.LookupExistingVM(ctx, r.Client, xoClient, vatesMachine, vmID)
 	} else {
-		injectedCC, injErr := xomachine.InjectPoolID(cloudConfig, poolID.String())
-		if injErr != nil {
-			logger.Error(injErr, "Failed to inject pool ID into cloud-config, continuing")
-		} else {
-			cloudConfig = injectedCC
-		}
 		vm, err = xomachine.CreateVM(ctx, r.Client, xoClient, vatesMachine, poolID, templateID, cloudConfig, vmName)
 	}
 	if err != nil {
