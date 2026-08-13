@@ -3,6 +3,7 @@ package xomachine
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -124,24 +125,101 @@ func resizeDiskIfNeeded(ctx context.Context, vatesMachine *infrastructurev1beta2
 		logger.Error(dErr, "Failed to get disks for VM resize")
 		return
 	}
-	if len(disks) == 0 {
+	mainDisk := findMainDisk(disks)
+	if mainDisk == nil {
+		logger.Info("No main disk found for VM resize", "diskCount", len(disks))
 		return
 	}
-	currentSize := int64(disks[0].Size)
 	requestedSize := diskQty.Value()
-	if currentSize >= requestedSize {
-		logger.Info("VM disk already at or above requested size, skipping resize", "currentSize", currentSize, "requestedSize", requestedSize, "diskSize", diskSize)
+	if int64(mainDisk.Size) >= requestedSize {
+		logger.Info("VM disk already at or above requested size, skipping resize", "currentSize", mainDisk.Size, "requestedSize", requestedSize, "diskSize", diskSize, "vdi", mainDisk.VDIId)
 		return
 	}
 	var success bool
 	if err := v1Concrete.Call("vdi.set", map[string]any{
-		"id":   disks[0].VDIId,
+		"id":   mainDisk.VDIId,
 		"size": requestedSize,
 	}, &success); err != nil {
-		logger.Info("Failed to set disk size (will continue)", "diskSize", diskSize, "requestedSize", requestedSize, "currentSize", currentSize, "error", err)
+		logger.Info("Failed to set disk size (will continue)", "diskSize", diskSize, "requestedSize", requestedSize, "currentSize", mainDisk.Size, "vdi", mainDisk.VDIId, "error", err)
 		return
 	}
-	logger.Info("Set VM disk size", "diskSize", diskSize, "success", success)
+	logger.Info("Set VM disk size", "diskSize", diskSize, "vdi", mainDisk.VDIId, "name", mainDisk.NameLabel, "success", success)
+}
+
+// findMainDisk selects the OS disk of a VM among the disks returned by the
+// XO API. The API returns disks in non-deterministic order, so the first
+// element cannot be trusted. The OS disk is identified by the bootable VBD;
+// when none is bootable, the disk with the lowest position is used, ignoring
+// the cloud-init config drive. A single-disk VM is always treated as having
+// its only disk as the main disk.
+func findMainDisk(disks []xoclient.Disk) *xoclient.Disk {
+	if len(disks) == 0 {
+		return nil
+	}
+	if len(disks) == 1 {
+		return &disks[0]
+	}
+	for i := range disks {
+		if disks[i].IsCdDrive {
+			continue
+		}
+		if disks[i].Bootable {
+			return &disks[i]
+		}
+	}
+	var best *xoclient.Disk
+	for i := range disks {
+		if disks[i].IsCdDrive || isCloudConfigDrive(disks[i]) {
+			continue
+		}
+		if best == nil || diskOrder(disks[i], *best) < 0 {
+			disk := disks[i]
+			best = &disk
+		}
+	}
+	if best == nil {
+		return &disks[0]
+	}
+	return best
+}
+
+// isCloudConfigDrive reports whether the disk is the cloud-init config drive,
+// identified by its name label.
+func isCloudConfigDrive(d xoclient.Disk) bool {
+	name := strings.ToLower(d.NameLabel)
+	return strings.Contains(name, "cloud") || strings.Contains(name, "config drive") || strings.Contains(name, "configdrive")
+}
+
+// diskOrder returns a negative number when a is ordered before b, zero when
+// they are equivalent, and a positive number otherwise. Disks are ordered by
+// their position first, then by their device name.
+func diskOrder(a, b xoclient.Disk) int {
+	pa, aOk := parseDiskPosition(a.Position)
+	pb, bOk := parseDiskPosition(b.Position)
+	switch {
+	case aOk && bOk:
+		if pa != pb {
+			return pa - pb
+		}
+	case aOk != bOk:
+		if aOk {
+			return -1
+		}
+		return 1
+	}
+	return strings.Compare(a.Device, b.Device)
+}
+
+// parseDiskPosition parses a VBD position string (e.g. "0", "1") into an int.
+func parseDiskPosition(position string) (int, bool) {
+	if position == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(position)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func setCPUsIfNeeded(ctx context.Context, vatesMachine *infrastructurev1beta2.XOMachine, vm *payloads.VM, v1Concrete *xoclient.Client, v1Ok bool) {
