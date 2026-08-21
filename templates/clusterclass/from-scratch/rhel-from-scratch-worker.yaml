@@ -42,3 +42,5 @@ spec:
           kubeletExtraArgs:
             - name: cgroup-driver
               value: systemd
+            - name: cloud-provider
+              value: external

@@ -16,11 +16,15 @@ spec:
             kubeletExtraArgs:
               - name: cgroup-driver
                 value: systemd
+              - name: cloud-provider
+                value: external
         joinConfiguration:
           nodeRegistration:
             kubeletExtraArgs:
               - name: cgroup-driver
                 value: systemd
+              - name: cloud-provider
+                value: external
         preKubeadmCommands:
           - |
             IP=$(hostname -I | awk '{print $1}')
